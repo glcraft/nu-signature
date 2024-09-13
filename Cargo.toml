@@ -1,21 +1,11 @@
 [package]
-name = "nupl-signature"
+name = "nu-signature"
 version = "0.1.0"
 edition = "2021"
-
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 proc-macro = true
 
-[[bin]]
-name = "nupl-signature-test"
-path = "src/main.rs"
-
 [dependencies]
-syn = "2.0"
-quote = "1.0"
-proc-macro2 = "1.0"
-nu-parser = {version = "0.97.2", path = "../nushell/crates/nu-parser" }
-nu-protocol = {version = "0.97.2", path = "../nushell/crates/nu-protocol" }
-chrono = "0.4.38"
+nu-signature-core = {version = "0.1.0", path = "crates/nu-signature-core" }

@@ -1,0 +1,14 @@
+[package]
+name = "nu-signature-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+syn = "2.0"
+quote = "1.0"
+proc-macro2 = "1.0"
+nu-parser = {version = "0.97.2", path = "../../../nushell/crates/nu-parser" }
+nu-protocol = {version = "0.97.2", path = "../../../nushell/crates/nu-protocol" }
+chrono = "0.4.38"
