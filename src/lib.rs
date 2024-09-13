@@ -1,7 +1,6 @@
 mod parse;
 mod build_sig;
-use nu_protocol::Signature;
-use proc_macro2::{Literal, TokenTree};
+use proc_macro2::TokenTree;
 use quote::quote;
 
 #[proc_macro]

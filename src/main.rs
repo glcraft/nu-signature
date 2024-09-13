@@ -45,11 +45,6 @@ mod keyword {
     }
 }
 
-struct SpannedError {
-    span: (u32, u32),
-    msg: String,
-}
-
 fn extract_declaration(content: &str) -> Result<(String, Signature), String> { 
     let engine = nu_protocol::engine::EngineState::new();
     let mut working_set = nu_protocol::engine::StateWorkingSet::new(&engine);
