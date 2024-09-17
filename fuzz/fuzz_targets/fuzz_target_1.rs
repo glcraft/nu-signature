@@ -22,6 +22,38 @@ struct Parameters {
     rest: Option<Parameter>,
 }
 
+fn char_from_ranges(index: usize, ranges: &[impl RangeBounds<char>]) -> char {
+    use std::ops::Bound;
+    let total = ranges
+        .iter()
+        .map(|r| {
+            if matches!((r.start_bound(), r.end_bound()), (Bound::Unbounded, _) | (_, Bound::Unbounded)) {
+                return None;
+            }
+            let start = match r.start_bound() {
+                Bound::Included(c) => *c as u32,
+                Bound::Excluded(c) => *c as u32 + 1,
+                Bound::Unbounded => return None
+            };
+            let end = match r.end_bound() {
+                Bound::Included(c) => *c as u32 + 1,
+                Bound::Excluded(c) => *c as u32,
+                Bound::Unbounded => return None
+            };
+            Some((end - start) as usize)
+        })
+        .sum::<Option<usize>>();
+    let index = if let Some(total) = total { index % total } else { index };
+    for (i, range) in ranges.iter().enumerate() {
+        let start = range.start_bound();
+        let end = range.end_bound();
+        if index < (end - start) as usize {
+            return *start + (index as u32);
+        }
+        index -= (end - start) as usize;
+    }
+    'a'
+}
 
 impl Display for Parameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
