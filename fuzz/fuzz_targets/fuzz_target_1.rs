@@ -26,7 +26,7 @@ impl Display for Signature {
 #[derive(arbitrary::Arbitrary, Debug)]
 struct Parameters {
     params: Vec<Parameter>,
-    rest: Option<Parameter>,
+    rest: Option<RestParameter>,
 }
 
 impl Display for Parameters {
@@ -35,8 +35,8 @@ impl Display for Parameters {
         for param in self.params.iter() {
             write!(f, "\n{}", param)?;
         }
-        if let Some(param) = &self.rest {
-            write!(f, "...{}", param)?;
+        if let Some(r) = &self.rest {
+            write!(f, "\n{}", r)?;
         }
         write!(f, "\n];")
     }
@@ -60,7 +60,7 @@ impl Display for Parameter {
             ParameterType::PositionalArg(dt) => write!(f, "{}{}", self.name, dt),
         }?;
         if let Some(desc) = &self.desc {
-            write!(f, "# {}", desc)?;
+            write!(f, " # {}", desc)?;
         }
         Ok(())
     }
@@ -76,46 +76,72 @@ enum ParameterType {
 }
 
 #[derive(arbitrary::Arbitrary, Debug)]
-struct ParameterData {
-    type_: DataType,
-    optional: bool,
-    default_value: Option<Named>,
+enum ParameterData {
+    Simple(DataType),
+    Optional(DataType),
+    WithDefaultValue(Value),
+    OptionalWithDefaultValue(Value),
 }
 
 impl Display for ParameterData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", if self.optional { "?" } else { "" }, self.type_)?;
-        if let Some(default_value) = &self.default_value {
-            write!(f, " = {}", default_value)?;
+        match self {
+            ParameterData::Simple(dt) => write!(f, ":{}", dt),
+            ParameterData::Optional(dt) => write!(f, "?:{}", dt),
+            ParameterData::WithDefaultValue(v) => write!(f, ":{} = {}", v.ty(), v),
+            ParameterData::OptionalWithDefaultValue(v) => write!(f, "?:{} = {}", v.ty(), v),
+        }
+    }
+}
+#[derive(arbitrary::Arbitrary, Debug)]
+struct RestParameter{
+    name: Named,
+    desc: Option<Named>,
+    ty: DataType,
+}
+
+impl Display for RestParameter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "...{}: {}", self.name, self.ty)?;
+        if let Some(desc) = &self.desc {
+            write!(f, " # {}", desc)?;
         }
         Ok(())
     }
 }
 
-#[derive(arbitrary::Arbitrary, Debug)]
+#[derive(arbitrary::Arbitrary, Clone, Debug)]
 enum DataType {
     Integer,
     Float,
     String,
-    Boolean,
-    List(Box<DataType>),
-    Record(Vec<(String, DataType)>),
-    Table(Vec<(String, DataType)>),
-    Nothing,
+    // Boolean,
+    List(Option<Box<DataType>>),
+    Record(Vec<(Named, DataType)>),
+    Table(Vec<(Named, DataType)>),
+    // Nothing,
 }
 impl Display for DataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DataType::Integer => write!(f, "integer"),
+            DataType::Integer => write!(f, "int"),
             DataType::Float => write!(f, "float"),
             DataType::String => write!(f, "string"),
-            DataType::Boolean => write!(f, "boolean"),
-            DataType::List(dt) => write!(f, "list<{}>", dt),
+            // DataType::Boolean => write!(f, "bool"),
+            DataType::List(dt) => {
+                match dt {
+                    Some(dt) => write!(f, "list<{}>", dt),
+                    None => write!(f, "list"),
+                }
+            }
             DataType::Record(fields) | DataType::Table(fields) => {
                 match self {
                     DataType::Record(_) => write!(f, "record")?,
                     DataType::Table(_) => write!(f, "table")?,
                     _ => unreachable!(),
+                }
+                if fields.is_empty() {
+                    return Ok(());
                 }
                 write!(f, "<")?;
                 for (i, (name, dt)) in fields.iter().enumerate() {
@@ -126,10 +152,70 @@ impl Display for DataType {
                 }
                 write!(f, ">")
             }
-            DataType::Nothing => write!(f, "nothing"),
+            // DataType::Nothing => write!(f, "nothing"),
         }
     }
 }
+
+#[derive(arbitrary::Arbitrary, Debug)]
+enum Value {
+    Integer(i64),
+    Float(f64),
+    String(Named),
+    // Boolean(bool),
+    List(Vec<Value>),
+    Record(Vec<(Named, Value)>),
+    Table(Vec<(Named, Value)>),
+    // Nothing,
+}
+
+fn float_to_string(i: f64, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let s = i.to_string();
+    if s.contains('.') {
+        write!(f, "{}", s)
+    } else {
+        write!(f, "{}.0", s)
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Integer(i) => write!(f, "{}", i),
+            Value::Float(i) => write!(f, "{:.8}", i),
+            Value::String(s) => write!(f, "\"{}\"", s),
+            // Value::Boolean(b) => write!(f, "{}", if *b { "true" } else { "false" }),
+            Value::List(l) => {
+                write!(f, "[{}]", l.iter().map(Self::to_string).collect::<Vec<_>>().join(", "))?;
+                Ok(())
+            }
+            Value::Record(r) => {
+                write!(f, "{{{}}}", r.iter().map(|(name, value)| format!("{}: {}", name, value)).collect::<Vec<_>>().join(", "))?;
+                Ok(())
+            }
+            Value::Table(t) => {
+                write!(f, "[{}]", t.iter().map(|(name, value)| format!("{{{}: {}}}", name, value)).collect::<Vec<_>>().join(", "))?;
+                Ok(())
+            }
+            // Value::Nothing => write!(f, "null"),
+        }
+    }
+}
+impl Value {
+    fn ty(&self) -> DataType {
+        match self {
+            Value::Integer(_) => DataType::Integer,
+            Value::Float(_) => DataType::Float,
+            Value::String(_) => DataType::String,
+            // Value::Boolean(_) => DataType::Boolean,
+            Value::List(v) => DataType::List(if v.is_empty() { None } else { Some(Box::new(v[0].ty())) }),
+            Value::Record(fields) => DataType::Record(fields.iter().map(|(name, value)| (name.clone(), value.ty())).collect()),
+            Value::Table(fields) => DataType::Table(fields.iter().map(|(name, value)| (name.clone(), value.ty())).collect()),
+            // Value::Nothing => DataType::Nothing,
+        }
+    }
+}
+
 
 fn char_from_ranges(index: u32, ranges: &[impl RangeBounds<char>]) -> char {
     use std::ops::Bound;
@@ -163,7 +249,7 @@ fn char_from_ranges(index: u32, ranges: &[impl RangeBounds<char>]) -> char {
     'a'
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Named(String);
 
 impl arbitrary::Arbitrary<'_> for Named {
@@ -183,10 +269,13 @@ impl arbitrary::Arbitrary<'_> for Named {
             }
         );
         let name = name.collect::<Result<String, _>>()?;
-        if name.len() < 2 {
+        if name.is_empty() {
             return Err(arbitrary::Error::NotEnoughData);
         }
         Ok(Named(name))
+    }
+    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+        (1, Some(20))
     }
 }
 impl Deref for Named {
