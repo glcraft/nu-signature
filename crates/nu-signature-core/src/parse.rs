@@ -1,3 +1,5 @@
+use core::str;
+
 use ast::Expr;
 use engine::CommandType;
 use nu_protocol::*;
@@ -48,7 +50,7 @@ pub fn extract_declaration(content: &[u8]) -> Result<(String, Signature), String
     working_set.add_decl(Box::new(Extern));
     let ext_call = nu_parser::parse(&mut working_set, None, content, false);
     if !working_set.parse_errors.is_empty() {
-        return Err(format!("Error while parsing the expression: {:#?}", working_set.parse_errors));
+        return Err(format!("Error while parsing the expression: {:#?}\nContent: {}", working_set.parse_errors, str::from_utf8(content).unwrap()));
     }
     
     if ext_call.pipelines.len() != 1 || ext_call.pipelines[0].elements.len() != 1 {
