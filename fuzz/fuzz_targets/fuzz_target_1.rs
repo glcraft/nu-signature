@@ -95,9 +95,44 @@ enum ParameterType {
 #[derive(arbitrary::Arbitrary, Debug)]
 enum ParameterData {
     Simple(DataType),
-    Optional(DataType),
     WithDefaultValue(Value),
+    Optional(DataType),
     OptionalWithDefaultValue(Value),
+}
+
+impl PartialEq for ParameterData {
+    fn eq(&self, other: &Self) -> bool {
+        matches!((self, other), 
+            (ParameterData::Simple(_), ParameterData::Simple(_)) 
+            | (ParameterData::WithDefaultValue(_), ParameterData::WithDefaultValue(_)) 
+            | (ParameterData::Optional(_), ParameterData::Optional(_)) 
+            | (ParameterData::OptionalWithDefaultValue(_), ParameterData::OptionalWithDefaultValue(_))
+        )
+    }
+}
+
+
+impl PartialOrd for ParameterData {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+        let res = match (self, other) {
+            (ParameterData::Simple(_), ParameterData::Simple(_)) => Ordering::Equal,
+            (ParameterData::Simple(_), _) => Ordering::Less,
+            (_, ParameterData::Simple(_)) => Ordering::Greater,
+
+            (ParameterData::WithDefaultValue(_), ParameterData::WithDefaultValue(_)) => Ordering::Equal,
+            (ParameterData::WithDefaultValue(_), _) => Ordering::Less,
+            (_, ParameterData::WithDefaultValue(_)) => Ordering::Greater,
+
+            (ParameterData::Optional(_), ParameterData::Optional(_)) => Ordering::Equal,
+            (ParameterData::Optional(_), _) => Ordering::Less,
+            (_, ParameterData::Optional(_)) => Ordering::Greater,
+
+            (ParameterData::OptionalWithDefaultValue(_), ParameterData::OptionalWithDefaultValue(_)) => Ordering::Equal,
+        };
+
+        Some(res)
+    }
 }
 
 impl Display for ParameterData {
