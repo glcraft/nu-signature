@@ -52,11 +52,28 @@ struct Parameter {
 
 impl Display for Parameter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut shorts = std::collections::HashSet::<char>::new();
+        let mut get_short = |name: &str| {
+            for c in name.chars() {
+                if !shorts.contains(&c) {
+                    shorts.insert(c);
+                    return c;
+                }
+            }
+            let chars = ('a'..='z').chain('A'..='Z').chain('0'..='9');
+            for c in chars {
+                if !shorts.contains(&c) {
+                    shorts.insert(c);
+                    return c;
+                }
+            }
+            panic!("Failed to generate short for {}", name)
+        };
         match &self.ty {
             ParameterType::Switch => write!(f, "--{}", self.name),
-            ParameterType::ShortSwitch => write!(f, "-{}", self.name.chars().next().unwrap_or('a')),
-            ParameterType::Flag(dt) => write!(f, "--{}{}", self.name, dt),
-            ParameterType::ShortFlag(dt) => write!(f, "-{}{}", self.name.chars().next().unwrap_or('a'), dt),
+            ParameterType::ShortSwitch => write!(f, "--{} (-{})", self.name, get_short(&self.name)),
+            ParameterType::Flag(dt) => write!(f, "--{} {}", self.name, dt),
+            ParameterType::ShortFlag(dt) => write!(f, "--{} (-{}) {}", self.name, get_short(&self.name), dt),
             ParameterType::PositionalArg(dt) => write!(f, "{}{}", self.name, dt),
         }?;
         if let Some(desc) = &self.desc {
