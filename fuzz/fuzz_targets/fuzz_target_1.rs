@@ -177,7 +177,7 @@ impl Display for DataType {
 #[derive(arbitrary::Arbitrary, Debug)]
 enum Value {
     Integer(i64),
-    Float(f64),
+    Float(Float),
     String(Named),
     // Boolean(bool),
     List(Vec<Value>),
@@ -199,7 +199,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Integer(i) => write!(f, "{}", i),
-            Value::Float(i) => write!(f, "{:.8}", i),
+            Value::Float(i) => write!(f, "{:.8}", i.deref()),
             Value::String(s) => write!(f, "\"{}\"", s),
             // Value::Boolean(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::List(l) => {
@@ -304,5 +304,37 @@ impl Deref for Named {
 impl Display for Named {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+
+#[derive(Clone, Debug)]
+struct Float(f64);
+
+impl Deref for Float {
+    type Target = f64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl arbitrary::Arbitrary<'_> for Float {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        union IntOrFloat{
+            i: u64,
+            f: f64,
+        }
+        let mut input = IntOrFloat { i: u.arbitrary::<u64>()? };
+        const NAN: IntOrFloat = IntOrFloat { f: f64::NAN };
+        
+        unsafe {
+            if (input.i & NAN.i) == NAN.i {
+                input.i ^= NAN.i;
+            }
+            Ok(Float(input.f))
+        }
+    }
+    fn size_hint(depth: usize) -> (usize, Option<usize>) {
+        f64::size_hint(depth)
     }
 }
