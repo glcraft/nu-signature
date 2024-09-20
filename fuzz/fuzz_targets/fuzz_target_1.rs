@@ -1,10 +1,12 @@
 #![no_main]
 
+use core::f64;
 use std::{fmt::Display, ops::{Deref, RangeBounds}};
 
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: Signature| {
+    SHORTS.lock().map(|mut s| s.clear()).expect("failed to clear shorts");
     let data_token = proc_macro2::TokenTree::Literal(proc_macro2::Literal::string(&data.to_string()));
     let res = nu_signature_core::make_signature(data_token.clone().into());
     let res = res.to_string();
@@ -25,57 +27,79 @@ impl Display for Signature {
 
 #[derive(arbitrary::Arbitrary, Debug)]
 struct Parameters {
-    params: Vec<Parameter>,
-    rest: Option<RestParameter>,
+    pub required_positional: Vec<PositionalArg>,
+    pub optional_positional: Vec<OptionalPositionalArg>,
+    pub rest_positional: Option<RestParameter>,
+    pub named: Vec<Flag>,
+    pub input_output_types: Vec<(ReturnType, ReturnType)>,
 }
 
 impl Display for Parameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[")?;
-        for param in self.params.iter() {
+        for param in &self.required_positional {
             write!(f, "\n{}", param)?;
         }
-        if let Some(r) = &self.rest {
+        for param in &self.optional_positional {
+            write!(f, "\n{}", param)?;
+        }
+        if let Some(r) = &self.rest_positional {
             write!(f, "\n{}", r)?;
         }
-        write!(f, "\n];")
+        for param in &self.named {
+            write!(f, "\n{}", param)?;
+        }
+        write!(f, "\n]")?;
+        match self.input_output_types.len() {
+            0 => write!(f, ";"),
+            1 => write!(f, ": {} -> {}", self.input_output_types[0].0, self.input_output_types[0].1),
+            _ => {
+                write!(f, ": [")?;
+                for param in &self.input_output_types {
+                    write!(f, " {} -> {}", param.0, param.1)?;
+                }
+                write!(f, " ];")
+            }
+        }
     }
 }
 
 #[derive(arbitrary::Arbitrary, Debug)]
-struct Parameter {
+struct Flag {
     name: Named,
+    short: bool,
     desc: Option<Named>,
-    ty: ParameterType,
+    ty: Option<ParameterType>,
+}
+static SHORTS: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashSet<char>>> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::<char>::new()));
+
+fn get_short(name: &str) -> char {
+    let mut shorts = SHORTS.lock().expect("failed to lock shorts");
+    for c in name.chars() {
+        if !shorts.contains(&c) {
+            shorts.insert(c);
+            return c;
+        }
+    }
+    let chars = ('a'..='z').chain('A'..='Z').chain('0'..='9');
+    for c in chars {
+        if !shorts.contains(&c) {
+            shorts.insert(c);
+            return c;
+        }
+    }
+    panic!("Failed to generate short for {}", name)
 }
 
-
-impl Display for Parameter {
+impl Display for Flag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut shorts = std::collections::HashSet::<char>::new();
-        let mut get_short = |name: &str| {
-            for c in name.chars() {
-                if !shorts.contains(&c) {
-                    shorts.insert(c);
-                    return c;
-                }
-            }
-            let chars = ('a'..='z').chain('A'..='Z').chain('0'..='9');
-            for c in chars {
-                if !shorts.contains(&c) {
-                    shorts.insert(c);
-                    return c;
-                }
-            }
-            panic!("Failed to generate short for {}", name)
-        };
-        match &self.ty {
-            ParameterType::Switch => write!(f, "--{}", self.name),
-            ParameterType::ShortSwitch => write!(f, "--{} (-{})", self.name, get_short(&self.name)),
-            ParameterType::Flag(dt) => write!(f, "--{} {}", self.name, dt),
-            ParameterType::ShortFlag(dt) => write!(f, "--{} (-{}) {}", self.name, get_short(&self.name), dt),
-            ParameterType::PositionalArg(dt) => write!(f, "{}{}", self.name, dt),
-        }?;
+        write!(f, "--{}", self.name)?;
+        if self.short {
+            write!(f, "(-{})", get_short(&self.name))?;
+        }
+        if let Some(ty) = &self.ty {
+            write!(f, ": {}", ty)?;
+        }
         if let Some(desc) = &self.desc {
             write!(f, " # {}", desc)?;
         }
@@ -84,64 +108,53 @@ impl Display for Parameter {
 }
 
 #[derive(arbitrary::Arbitrary, Debug)]
-enum ParameterType {
-    Switch,
-    ShortSwitch,
-    Flag(ParameterData),
-    ShortFlag(ParameterData),
-    PositionalArg(ParameterData),
+struct PositionalArg {
+    name: Named,
+    desc: Option<Named>,
+    ty: Option<ParameterType>,
+}
+
+impl Display for PositionalArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)?;
+        if let Some(ty) = &self.ty {
+            write!(f, ": {}", ty)?;
+        }
+        if let Some(desc) = &self.desc {
+            write!(f, " # {}", desc)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(arbitrary::Arbitrary, Debug)]
-enum ParameterData {
-    Simple(DataType),
-    WithDefaultValue(Value),
-    Optional(DataType),
-    OptionalWithDefaultValue(Value),
+struct OptionalPositionalArg {
+    name: Named,
+    desc: Option<Named>,
+    ty: OptionalValue,
 }
 
-impl PartialEq for ParameterData {
-    fn eq(&self, other: &Self) -> bool {
-        matches!((self, other), 
-            (ParameterData::Simple(_), ParameterData::Simple(_)) 
-            | (ParameterData::WithDefaultValue(_), ParameterData::WithDefaultValue(_)) 
-            | (ParameterData::Optional(_), ParameterData::Optional(_)) 
-            | (ParameterData::OptionalWithDefaultValue(_), ParameterData::OptionalWithDefaultValue(_))
-        )
+impl Display for OptionalPositionalArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}?: {}", self.name, self.ty)?;
+        if let Some(desc) = &self.desc {
+            write!(f, " # {}", desc)?;
+        }
+        Ok(())
     }
 }
 
 
-impl PartialOrd for ParameterData {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-        let res = match (self, other) {
-            (ParameterData::Simple(_), ParameterData::Simple(_)) => Ordering::Equal,
-            (ParameterData::Simple(_), _) => Ordering::Less,
-            (_, ParameterData::Simple(_)) => Ordering::Greater,
-
-            (ParameterData::WithDefaultValue(_), ParameterData::WithDefaultValue(_)) => Ordering::Equal,
-            (ParameterData::WithDefaultValue(_), _) => Ordering::Less,
-            (_, ParameterData::WithDefaultValue(_)) => Ordering::Greater,
-
-            (ParameterData::Optional(_), ParameterData::Optional(_)) => Ordering::Equal,
-            (ParameterData::Optional(_), _) => Ordering::Less,
-            (_, ParameterData::Optional(_)) => Ordering::Greater,
-
-            (ParameterData::OptionalWithDefaultValue(_), ParameterData::OptionalWithDefaultValue(_)) => Ordering::Equal,
-        };
-
-        Some(res)
-    }
+#[derive(arbitrary::Arbitrary, Debug)]
+enum OptionalValue {
+    HasValue(Value),
+    NoValue(ParameterType),
 }
-
-impl Display for ParameterData {
+impl Display for OptionalValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParameterData::Simple(dt) => write!(f, ":{}", dt),
-            ParameterData::Optional(dt) => write!(f, "?:{}", dt),
-            ParameterData::WithDefaultValue(v) => write!(f, ":{} = {}", v.ty(), v),
-            ParameterData::OptionalWithDefaultValue(v) => write!(f, "?:{} = {}", v.ty(), v),
+            OptionalValue::HasValue(v) => write!(f, "{} = {}", v.ty(), v),
+            OptionalValue::NoValue(ty) => write!(f, "{}", ty),
         }
     }
 }
@@ -149,7 +162,7 @@ impl Display for ParameterData {
 struct RestParameter{
     name: Named,
     desc: Option<Named>,
-    ty: DataType,
+    ty: ParameterType,
 }
 
 impl Display for RestParameter {
@@ -163,33 +176,33 @@ impl Display for RestParameter {
 }
 
 #[derive(arbitrary::Arbitrary, Clone, Debug)]
-enum DataType {
+enum ParameterType {
     Integer,
     Float,
     String,
     // Boolean,
-    List(Option<Box<DataType>>),
-    Record(Vec<(Named, DataType)>),
-    Table(Vec<(Named, DataType)>),
+    List(Option<Box<ParameterType>>),
+    Record(Vec<(Named, ParameterType)>),
+    Table(Vec<(Named, ParameterType)>),
     // Nothing,
 }
-impl Display for DataType {
+impl Display for ParameterType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DataType::Integer => write!(f, "int"),
-            DataType::Float => write!(f, "float"),
-            DataType::String => write!(f, "string"),
+            ParameterType::Integer => write!(f, "int"),
+            ParameterType::Float => write!(f, "float"),
+            ParameterType::String => write!(f, "string"),
             // DataType::Boolean => write!(f, "bool"),
-            DataType::List(dt) => {
+            ParameterType::List(dt) => {
                 match dt {
                     Some(dt) => write!(f, "list<{}>", dt),
                     None => write!(f, "list"),
                 }
             }
-            DataType::Record(fields) | DataType::Table(fields) => {
+            ParameterType::Record(fields) | ParameterType::Table(fields) => {
                 match self {
-                    DataType::Record(_) => write!(f, "record")?,
-                    DataType::Table(_) => write!(f, "table")?,
+                    ParameterType::Record(_) => write!(f, "record")?,
+                    ParameterType::Table(_) => write!(f, "table")?,
                     _ => unreachable!(),
                 }
                 if fields.is_empty() {
@@ -205,6 +218,53 @@ impl Display for DataType {
                 write!(f, ">")
             }
             // DataType::Nothing => write!(f, "nothing"),
+        }
+    }
+}
+
+#[derive(arbitrary::Arbitrary, Clone, Debug)]
+enum ReturnType {
+    Integer,
+    Float,
+    String,
+    Boolean,
+    List(Option<Box<ReturnType>>),
+    Record(Vec<(Named, ReturnType)>),
+    Table(Vec<(Named, ReturnType)>),
+    Nothing,
+}
+impl Display for ReturnType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Integer => write!(f, "int"),
+            Self::Float => write!(f, "float"),
+            Self::String => write!(f, "string"),
+            Self::Boolean => write!(f, "bool"),
+            Self::List(dt) => {
+                match dt {
+                    Some(dt) => write!(f, "list<{}>", dt),
+                    None => write!(f, "list"),
+                }
+            }
+            Self::Record(fields) | Self::Table(fields) => {
+                match self {
+                    Self::Record(_) => write!(f, "record")?,
+                    Self::Table(_) => write!(f, "table")?,
+                    _ => unreachable!(),
+                }
+                if fields.is_empty() {
+                    return Ok(());
+                }
+                write!(f, "<")?;
+                for (i, (name, dt)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", name, dt)?;
+                }
+                write!(f, ">")
+            }
+            Self::Nothing => write!(f, "nothing"),
         }
     }
 }
@@ -254,15 +314,15 @@ impl Display for Value {
     }
 }
 impl Value {
-    fn ty(&self) -> DataType {
+    fn ty(&self) -> ParameterType {
         match self {
-            Value::Integer(_) => DataType::Integer,
-            Value::Float(_) => DataType::Float,
-            Value::String(_) => DataType::String,
+            Value::Integer(_) => ParameterType::Integer,
+            Value::Float(_) => ParameterType::Float,
+            Value::String(_) => ParameterType::String,
             // Value::Boolean(_) => DataType::Boolean,
-            Value::List(v) => DataType::List(if v.is_empty() { None } else { Some(Box::new(v[0].ty())) }),
-            Value::Record(fields) => DataType::Record(fields.iter().map(|(name, value)| (name.clone(), value.ty())).collect()),
-            Value::Table(fields) => DataType::Table(fields.iter().map(|(name, value)| (name.clone(), value.ty())).collect()),
+            Value::List(v) => ParameterType::List(if v.is_empty() { None } else { Some(Box::new(v[0].ty())) }),
+            Value::Record(fields) => ParameterType::Record(fields.iter().map(|(name, value)| (name.clone(), value.ty())).collect()),
+            Value::Table(fields) => ParameterType::Table(fields.iter().map(|(name, value)| (name.clone(), value.ty())).collect()),
             // Value::Nothing => DataType::Nothing,
         }
     }

@@ -936,6 +936,7 @@ dependencies = [
  "arbitrary",
  "libfuzzer-sys",
  "nu-signature-core",
+ "once_cell",
  "proc-macro2",
 ]
 
