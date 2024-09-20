@@ -360,11 +360,11 @@ impl arbitrary::Arbitrary<'_> for Float {
             f: f64,
         }
         let mut input = IntOrFloat { i: u.arbitrary::<u64>()? };
-        const NAN: IntOrFloat = IntOrFloat { f: f64::NAN };
+        const INFINITY: IntOrFloat = IntOrFloat { f: f64::INFINITY };
         
         unsafe {
-            if (input.i & NAN.i) == NAN.i {
-                input.i ^= NAN.i;
+            if (input.i & INFINITY.i) == INFINITY.i {
+                input.i ^= INFINITY.i;
             }
             Ok(Float(input.f))
         }
