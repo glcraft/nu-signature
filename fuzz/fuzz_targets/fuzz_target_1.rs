@@ -281,15 +281,6 @@ enum Value {
     // Nothing,
 }
 
-fn float_to_string(i: f64, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let s = i.to_string();
-    if s.contains('.') {
-        write!(f, "{}", s)
-    } else {
-        write!(f, "{}.0", s)
-    }
-}
-
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
